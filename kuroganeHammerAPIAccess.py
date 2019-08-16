@@ -2,6 +2,7 @@ import sys
 
 import urllib3
 import json
+import requests
 
 
 # baseURL = 'https://api.kuroganehammer.com/api/characters/name/'
@@ -21,12 +22,12 @@ import json
 #print(json.loads(request.data.decode('utf-8')))
 
 def makeAPICall(character, attribute, game, trySmash4):
-    baseURL = 'https://api.kuroganehammer.com/api/characters/name/'
-    apiURL = baseURL + character + '/' + attribute + '?game=' + game
+    baseURL = 'https://api.kuroganehammer.com/api/characters/name/{}/{}?game={}'
+    apiURL = baseURL.format(character, attribute, game)
 
-    http = urllib3.PoolManager()
-
-    data = json.loads(http.request('GET', apiURL).data.decode('utf-8'))
+    request = requests.get(apiURL)
+    statusCode = request.status_code
+    data = request.json()
 
     try:
         if data == [] or data['Message'] == "Resource of type 'ICharacter' not found.":
@@ -34,9 +35,11 @@ def makeAPICall(character, attribute, game, trySmash4):
                 print("%s data for %s in %s could not be found.  Retrying with Smash4 data." % (attribute, character, game), file=sys.stderr)
                 data = makeAPICall(character, attribute, 'smash4', False)
             else:
-                print("%s data for %s in %s could not be found.  You may have spelled something wrong or this character does not have data available for that game." % (attribute, character, game), file=sys.stderr)
+                errorReturn = {}
+                errorReturn['Error'] = "%s data for %s in %s could not be found.  You may have spelled something wrong or this character does not have data available for that game." % (attribute, character, game)
+                errorReturn['Status Code'] = statusCode
             
-                return None
+                return errorReturn
     except:
         pass
     
@@ -47,7 +50,7 @@ def getCharacterData(character, game='ultimate', trySmash4=True):
     dataCatagory = ''
     apiData = makeAPICall(character, dataCatagory, game, trySmash4)
 
-    if apiData is not None:
+    try:
         desiredData = ('MainImageUrl', 'ThumbnailUrl', 'ColorTheme', 'DisplayName')
 
         characterData = {}
@@ -58,17 +61,39 @@ def getCharacterData(character, game='ultimate', trySmash4=True):
         for attribute in desiredData:
             characterData[attribute] = apiData[attribute]
     
-            return characterData
-    else:
+        return characterData
+    except KeyError:
 
-        return {}
+        return apiData
+
+def getMoveList(character, game='ultimate', trySmash4=True):
+    dataCatagory = 'moves'
+    apiData = makeAPICall(character, dataCatagory, game, trySmash4)
+
+    try:
+        moveList = []
+        
+        for move in apiData:
+            moveList.append(move['Name'])
+
+        moveListData = {}
+        moveListData['Character'] = apiData[0]['Owner']
+        moveListData['Game'] = apiData[0]['Game']
+        moveListData['Data Catagory'] = dataCatagory
+        moveListData['Move List'] = moveList
+
+        return moveListData
+    
+    except KeyError:
+
+        return apiData
 
 
 def getMoveData(character, move, game='ultimate', trySmash4=True):
     dataCatagory = 'moves'
     apiData = makeAPICall(character, dataCatagory, game, trySmash4)
 
-    if apiData is not None:
+    try:
         desiredMove = next((_move for _move in apiData if _move['Name'] == move), None)
 
         if desiredMove is None:
@@ -85,15 +110,16 @@ def getMoveData(character, move, game='ultimate', trySmash4=True):
             moveData[attribute] = desiredMove[attribute]
 
         return moveData
-    else:
+    except KeyError:
 
-        return {}
+        return apiData
 
 def getMovementData(character, game='ultimate', trySmash4=True):
     dataCatagory = 'movements'
     apiData = makeAPICall(character, dataCatagory, game, trySmash4)
 
-    if apiData is not None:
+    try:
+        
         movementData = {}
         movementData['Character'] = apiData[0]['Owner']
         movementData['Game'] = apiData[0]['Game']
@@ -103,15 +129,15 @@ def getMovementData(character, game='ultimate', trySmash4=True):
             movementData[attribute['Name']] = attribute['Value']
     
         return movementData
-    else:
+    except KeyError:
 
-        return {}
+        return apiData
 
 def getCharacterAttributeData(character, game='ultimate', trySmash4=True):
     dataCatagory = 'characterattributes'
     apiData = makeAPICall(character, dataCatagory, game, trySmash4)
 
-    if apiData is not None:
+    try:
         characterAttributeData = {}
         characterAttributeData['Character'] = apiData[0]['Owner']
         characterAttributeData['Game'] = apiData[0]['Game']
@@ -127,9 +153,9 @@ def getCharacterAttributeData(character, game='ultimate', trySmash4=True):
             characterAttributeData[key] = value
 
         return characterAttributeData
-    else:
+    except KeyError:
 
-        return {}
+        return apiData
 
     
 
@@ -139,25 +165,42 @@ def tablePrint(dictionary):
 
         output = ''
         for key, value in dictionary.items():
-            output = output + key
-            for _ in range(keyColumnWidth - len(key)):
-                output = output + ' '
+            output = output + key + (keyColumnWidth - len(key)) * ' '
 
-            output = output + str(value) + '\n'
+            if isinstance(value, list):
+                output = output + str(value[0]) + '\n'
+                for item in value[1:]:
+                    output = output + keyColumnWidth * ' ' + str(item) + '\n'
+                    
+            else:
+                output = output + str(value) + '\n'
 
         return output
     except ValueError:
 
         return ''
 
+def listPrint(list):
+    output = ''
+    for element in list:
+        output = output + element + '\n'
+
+    return output
+
 
 if '__main__' == __name__:
     characterData = getCharacterData('kingdedede')
+    moveList = getMoveList('pichu')
     moveData = getMoveData('ness', 'Jab 1')
     movementData = getMovementData('olimar')
-    characterAttributeData = getCharacterAttributeData('megaman')
+    characterAttributeData = getCharacterAttributeData('megaman', game='smash4')
+    failCharacterAttributeData = getCharacterAttributeData('kingdedede',
+                                                           trySmash4=False)
 
+    print(characterData)
     print(tablePrint(characterData))
+    print(tablePrint(moveList))
     print(tablePrint(moveData))
     print(tablePrint(movementData))
     print(tablePrint(characterAttributeData))
+    print(tablePrint(failCharacterAttributeData))
